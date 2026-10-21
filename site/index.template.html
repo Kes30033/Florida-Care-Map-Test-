@@ -1,0 +1,753 @@
+<title>Florida Care Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Public+Sans:wght@400;500;600;700&display=swap">
+<!--LEAFLET_CSS-->
+<style>
+/* Layout: a directory panel beside a full-height map of Florida; on phones the map sits on top and the panel scrolls below. */
+:root {
+  --water: #dce8ec;
+  --land: #f7f8f6;
+  --neighbor: #e9ece9;
+  --county: #c3cbc8;
+  --road-1: #cdbf9f;
+  --road-2: #ddd4c0;
+  --panel: #ffffff;
+  --panel-2: #f2f4f3;
+  --ink: #13191c;
+  --ink-2: #4a5357;
+  --muted: #737c80;
+  --line: #e1e5e4;
+  --cluster: #263034;
+  --cluster-ink: #ffffff;
+  --halo: rgba(247, 248, 246, 0.92);
+  --g0: #2a78d6;
+  --g1: #eb6834;
+  --g2: #1baf7a;
+  --g3: #52514e;
+  --focus: #2a78d6;
+  --font-display: "Bricolage Grotesque", "Public Sans", system-ui, sans-serif;
+  --font-ui: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --water: #0e1316; --land: #1f2427; --neighbor: #181c1f; --county: #3a4347;
+    --road-1: #5a5546; --road-2: #3e3d36; --panel: #14181a; --panel-2: #1b2023;
+    --ink: #edf1f0; --ink-2: #b8c0c2; --muted: #879094; --line: #293134;
+    --cluster: #e2e8e7; --cluster-ink: #14181a; --halo: rgba(31, 36, 39, 0.92);
+    --g0: #3987e5; --g1: #d95926; --g2: #199e70; --g3: #c3c2b7; --focus: #3987e5;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --water: #0e1316; --land: #1f2427; --neighbor: #181c1f; --county: #3a4347;
+  --road-1: #5a5546; --road-2: #3e3d36; --panel: #14181a; --panel-2: #1b2023;
+  --ink: #edf1f0; --ink-2: #b8c0c2; --muted: #879094; --line: #293134;
+  --cluster: #e2e8e7; --cluster-ink: #14181a; --halo: rgba(31, 36, 39, 0.92);
+  --g0: #3987e5; --g1: #d95926; --g2: #199e70; --g3: #c3c2b7; --focus: #3987e5;
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body { background: var(--panel); color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.45; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.app { height: 100%; display: grid; grid-template-columns: minmax(0, 400px) minmax(0, 1fr); }
+.panel { min-width: 0; overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; }
+.panel > * { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 20px; }
+#map { min-width: 0; height: 100%; background: var(--water); }
+
+.masthead { padding-block: 20px 14px; display: grid; gap: 4px; }
+.masthead h1 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 26px; letter-spacing: -0.01em; line-height: 1.1; text-wrap: balance; }
+.masthead p { margin: 0; color: var(--ink-2); font-size: 13px; }
+.tally { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
+
+.search { padding-block: 4px 12px; display: grid; gap: 8px; }
+.search form { display: flex; gap: 8px; }
+.search input { flex: 1; min-width: 0; height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); font-size: 15px; }
+.search input::placeholder { color: var(--muted); }
+.btn { height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--ink); background: var(--ink); color: var(--panel); font-weight: 600; cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); height: 32px; padding: 0 10px; font-size: 13px; font-weight: 500; }
+.btn.ghost:hover { border-color: var(--ink-2); }
+.status { font-size: 13px; color: var(--ink-2); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.status:empty { display: none; }
+
+.filters { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding-block: 0; }
+.filters > summary { list-style: none; cursor: pointer; padding-block: 12px; display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+.filters > summary::-webkit-details-marker { display: none; }
+.filters > summary .chev { transition: transform .15s; color: var(--muted); }
+.filters[open] > summary .chev { transform: rotate(180deg); }
+.filter-body { display: grid; gap: 14px; padding-bottom: 16px; }
+.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+
+.groups { display: grid; gap: 2px; }
+.group-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 4px 0; }
+.group-row > label { display: contents; cursor: pointer; }
+.group-row .name { font-weight: 600; min-width: 0; }
+.count { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; text-align: right; }
+.expand { border: 0; background: none; padding: 2px 4px; cursor: pointer; color: var(--muted); border-radius: 4px; }
+.expand[aria-expanded="true"] svg { transform: rotate(180deg); }
+.cats { grid-column: 1 / -1; display: grid; gap: 2px; padding: 2px 0 6px 26px; }
+.cat-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--ink); }
+
+.swatch { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: none; }
+.swatch.g0 { background: var(--g0); } .swatch.g1 { background: var(--g1); } .swatch.g2 { background: var(--g2); }
+.swatch.g3 { background: transparent; border: 2.5px solid var(--g3); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 11px; font-size: 13px; cursor: pointer; }
+.chip:hover { border-color: var(--ink-2); }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.filter-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
+
+.results { padding-block: 14px 8px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.results-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.results-head h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; }
+.list li + li { border-top: 1px solid var(--line); }
+.item { width: 100%; text-align: left; background: none; border: 0; padding: 10px 6px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; cursor: pointer; border-radius: 6px; }
+.item:hover { background: var(--panel-2); }
+.item .swatch { margin-top: 4px; }
+.item .t { font-weight: 600; overflow-wrap: anywhere; }
+.item .s { grid-column: 2; color: var(--ink-2); font-size: 12.5px; overflow-wrap: anywhere; }
+.empty { color: var(--ink-2); background: var(--panel-2); border-radius: 8px; padding: 14px; margin: 0; }
+.more { align-self: start; }
+
+.detail { padding-block: 14px 20px; display: grid; gap: 14px; align-content: start; }
+.detail h2 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 22px; line-height: 1.15; text-wrap: balance; overflow-wrap: anywhere; }
+.detail .aka { margin: -8px 0 0; color: var(--ink-2); font-size: 13px; }
+.kind { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 14px; margin: 0; }
+.facts dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; padding-top: 2px; }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; }
+.pill.flag { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.note { font-size: 12.5px; color: var(--ink-2); background: var(--panel-2); padding: 10px 12px; border-radius: 8px; margin: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions a { color: var(--ink); font-weight: 600; text-underline-offset: 3px; }
+.phone { font-variant-numeric: tabular-nums; user-select: all; }
+
+.source { padding-block: 12px 18px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); }
+.source p { margin: 0; }
+
+/* map chrome */
+.leaflet-container { background: var(--water); font-family: var(--font-ui); }
+.leaflet-bar a, .leaflet-bar a:hover { background: var(--panel); color: var(--ink); border-bottom-color: var(--line); }
+.leaflet-bar { border: 1px solid var(--line) !important; box-shadow: none !important; }
+.leaflet-control-scale-line { background: var(--halo); color: var(--ink-2); border-color: var(--ink-2); }
+.leaflet-control-attribution { background: var(--halo) !important; color: var(--ink-2); }
+.leaflet-top.leaflet-right { margin-right: env(safe-area-inset-right, 0px); }
+.styles { display: flex; gap: 2px; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-left: calc(10px + env(safe-area-inset-left, 0px)) !important; }
+.styles button { border: 0; background: none; padding: 5px 10px; border-radius: 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.styles button:hover { color: var(--ink); }
+.styles button[aria-checked="true"] { background: var(--ink); color: var(--panel); }
+.tip { position: absolute; z-index: 800; pointer-events: none; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12.5px; max-width: 260px; box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+.tip b { display: block; }
+.tip span { color: var(--ink-2); }
+.loading { position: absolute; z-index: 900; left: 50%; top: 16px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,.12); white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 52% minmax(0, 1fr); }
+  #map { grid-row: 1; }
+  .panel { grid-row: 2; border-right: 0; border-top: 1px solid var(--line); }
+  .panel > * { padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .masthead { padding-block: 14px 10px; }
+  .masthead h1 { font-size: 22px; }
+  /* Map credits: one line on phones, full text on tap */
+  .leaflet-control-attribution { max-width: calc(100vw - 110px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .leaflet-control-attribution:hover, .leaflet-control-attribution:focus-within { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <aside class="panel" aria-label="Directory">
+    <header class="masthead">
+      <h1>Florida Care Map</h1>
+      <p>Every healthcare organization registered in Florida. <span class="tally" id="tally">Loading…</span></p>
+    </header>
+
+    <div class="search">
+      <form id="searchForm" role="search">
+        <input id="q" type="search" inputmode="search" autocomplete="off" list="cityList" placeholder="ZIP code or city, e.g. 33607" aria-label="Search by ZIP code or city">
+        <button class="btn" type="submit">Search</button>
+      </form>
+      <datalist id="cityList"></datalist>
+      <div class="status" id="status" aria-live="polite"></div>
+    </div>
+
+    <details class="filters" id="filters" open>
+      <summary>Filters <svg class="chev" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 5l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></summary>
+      <div class="filter-body">
+        <p class="eyebrow">Type of place</p>
+        <div class="groups" id="groups"></div>
+        <p class="eyebrow">Must offer</p>
+        <div class="chips" id="chips"></div>
+        <div class="filter-foot">
+          <p class="hint">Specialties come from each place's official registration.</p>
+          <button class="btn ghost" type="button" id="reset">Reset</button>
+        </div>
+      </div>
+    </details>
+
+    <section class="results" id="results" aria-live="polite">
+      <div class="results-head"><h2 id="resultsTitle">Places in view</h2><span class="count" id="resultsCount"></span></div>
+      <ul class="list" id="list"></ul>
+      <p class="empty" id="empty" hidden></p>
+      <button class="btn ghost more" type="button" id="more" hidden>Show more</button>
+    </section>
+
+    <section class="detail" id="detail" hidden></section>
+
+    <footer class="source">
+      <p>Source: U.S. NPI Registry (CMS), Oct 21, 2026. Map positions from the U.S. Census and OpenStreetMap address lookups. Registrations are self-reported, so call ahead to confirm services.</p>
+    </footer>
+  </aside>
+  <div id="map" role="application" aria-label="Map of Florida healthcare places"><div class="loading" id="loading">Loading places…</div></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/supercluster@8.0.1/dist/supercluster.min.js"></script>
+<script>
+(() => {
+"use strict";
+const GROUPS = ["Hospitals & emergency", "Rehab, therapy & spine", "Doctors & clinics", "Other care & services"];
+const FLAGS = [
+  { bit: 1, label: "Spine & scoliosis" }, { bit: 2, label: "Orthopedics" }, { bit: 4, label: "Surgery" },
+  { bit: 8, label: "Rehab & therapy" }, { bit: 16, label: "Children" }, { bit: 32, label: "Mental health" },
+];
+const APPROX = 64;
+const TILES = /*TILES*/true;   // false in the Claude artifact build, where outside map images are blocked
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
+const LIST_LIMIT = 400, PAGE = 150, CLUSTER_MAX = 15;
+
+const $ = id => document.getElementById(id);
+const fmt = n => n.toLocaleString("en-US");
+const short = n => n >= 10000 ? Math.round(n / 1000) + "k" : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+let P, N, LAT, LNG, feats, index, base, map, layer;
+let catOn = [], must = 0, pass;
+let mode = { kind: "view" };      // view | zip | city | spot
+let listIdx = [], shown = 0, selected = -1;
+const details = {};               // zip3 -> Promise<array>
+
+let T = {};
+function readTokens() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ["water","land","neighbor","county","road-1","road-2","ink","ink-2","muted","cluster","cluster-ink","halo","g0","g1","g2","g3","panel"]) T[k] = cs.getPropertyValue("--" + k).trim();
+  // Ring and hollow-dot fill: match whatever the dots sit on
+  T.ring = mapStyle === "simple" ? T.land : "#ffffff";
+}
+
+
+// ---------- data helpers ----------
+const groupOf = i => P.groupOf[P.c[i]];
+function zip3Range(z3) {
+  const g = P.zip3; for (let k = 0; k < g.length; k++) if (g[k][0] === z3) return [g[k][1], k + 1 < g.length ? g[k + 1][1] : N];
+  return null;
+}
+function loadDetails(z3) {
+  if (!details[z3]) details[z3] = fetch(`data/d/${z3}.json`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .catch(e => { delete details[z3]; throw e; });
+  return details[z3];
+}
+const cache = {};
+async function ensure(ids) {
+  const need = new Set(ids.map(i => Math.floor(P.z[i] / 100)));
+  await Promise.all([...need].map(async z3 => { if (!cache[z3]) cache[z3] = await loadDetails(z3); }));
+}
+function rec(i) {
+  const z3 = Math.floor(P.z[i] / 100), arr = cache[z3]; if (!arr) return null;
+  return arr[i - zip3Range(z3)[0]];
+}
+
+// ---------- filtering ----------
+function computePass() {
+  pass = new Uint8Array(N);
+  for (let i = 0; i < N; i++) pass[i] = catOn[P.c[i]] && (P.f[i] & must) === must ? 1 : 0;
+}
+let rebuildTimer;
+function applyFilters() {
+  computePass();
+  updateCounts();
+  clearTimeout(rebuildTimer);
+  showLoading("Updating map…");
+  rebuildTimer = setTimeout(() => {
+    index = new Supercluster({ radius: 60, maxZoom: CLUSTER_MAX, minPoints: 3 });
+    index.load(feats.filter((_, i) => pass[i]));
+    hideLoading();
+    layer.refresh();
+    if (mode.kind !== "view") refreshList();
+  }, 30);
+}
+function updateCounts() {
+  const byCat = new Array(P.categories.length).fill(0);
+  let total = 0;
+  for (let i = 0; i < N; i++) if ((P.f[i] & must) === must) { byCat[P.c[i]]++; if (catOn[P.c[i]]) total++; }
+  P.categories.forEach((_, c) => { const el = $("cc" + c); if (el) el.textContent = fmt(byCat[c]); });
+  GROUPS.forEach((_, g) => {
+    let n = 0, on = 0, cnt = 0;
+    P.categories.forEach((_, c) => { if (P.groupOf[c] === g) { cnt++; if (catOn[c]) { on++; n += byCat[c]; } } });
+    $("gc" + g).textContent = fmt(n);
+    const box = $("g" + g); box.checked = on === cnt; box.indeterminate = on > 0 && on < cnt;
+  });
+  $("tally").textContent = total === N ? `${fmt(N)} places.` : `Showing ${fmt(total)} of ${fmt(N)} places.`;
+}
+
+// ---------- filter UI ----------
+function buildFilters() {
+  const groupsEl = $("groups");
+  GROUPS.forEach((name, g) => {
+    const row = document.createElement("div");
+    row.className = "group-row";
+    const cats = P.categories.map((c, i) => [c, i]).filter(([, i]) => P.groupOf[i] === g);
+    row.innerHTML = `<label><input type="checkbox" id="g${g}" checked><span class="swatch g${g}"></span><span class="name">${esc(name)}</span></label>
+      <span class="count" id="gc${g}"></span>
+      <button class="expand" type="button" aria-expanded="false" aria-controls="cats${g}" aria-label="Show the ${cats.length} types in ${esc(name)}"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 5l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+      <div class="cats" id="cats${g}" hidden>${cats.map(([c, i]) => `<label class="cat-row"><input type="checkbox" id="c${i}" checked><span>${esc(c)}</span><span class="count" id="cc${i}"></span></label>`).join("")}</div>`;
+    groupsEl.appendChild(row);
+    row.querySelector(".expand").addEventListener("click", e => {
+      const b = e.currentTarget, open = b.getAttribute("aria-expanded") !== "true";
+      b.setAttribute("aria-expanded", open); $("cats" + g).hidden = !open;
+    });
+    $("g" + g).addEventListener("change", e => { cats.forEach(([, i]) => { catOn[i] = e.target.checked; $("c" + i).checked = e.target.checked; }); applyFilters(); });
+    cats.forEach(([, i]) => $("c" + i).addEventListener("change", e => { catOn[i] = e.target.checked; applyFilters(); }));
+  });
+  const chips = $("chips");
+  FLAGS.forEach(f => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.textContent = f.label; b.setAttribute("aria-pressed", "false");
+    b.addEventListener("click", () => { must ^= f.bit; b.setAttribute("aria-pressed", String(!!(must & f.bit))); applyFilters(); });
+    chips.appendChild(b);
+  });
+  $("reset").addEventListener("click", () => {
+    catOn = catOn.map(() => true); must = 0;
+    document.querySelectorAll("#groups input").forEach(x => { x.checked = true; x.indeterminate = false; });
+    document.querySelectorAll("#chips .chip").forEach(x => x.setAttribute("aria-pressed", "false"));
+    applyFilters();
+  });
+}
+
+// ---------- map ----------
+const PointsLayer = L.Layer.extend({
+  onAdd(m) {
+    const pane = m.createPane("pts"); pane.style.zIndex = 450; pane.style.pointerEvents = "none";
+    this._c = L.DomUtil.create("canvas", "leaflet-zoom-hide", pane);
+    this.items = []; this.labels = [];
+    m.on("move", this.draw, this); m.on("moveend resize", this.refresh, this);
+  },
+  refresh() {
+    if (!index) return;
+    const b = map.getBounds().pad(0.35), z = map.getZoom();
+    const raw = index.getClusters([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], Math.floor(z));
+    const items = [], spots = new Map();
+    for (const f of raw) {
+      const [lng, lat] = f.geometry.coordinates;
+      if (f.properties.cluster) items.push({ k: "c", lat, lng, n: f.properties.point_count, id: f.properties.cluster_id });
+      else {
+        const i = f.properties.i, key = Math.round(LAT[i] * 1e4) + "," + Math.round(LNG[i] * 1e4);
+        (spots.get(key) || spots.set(key, []).get(key)).push(i);
+      }
+    }
+    for (const ids of spots.values()) {
+      const i = ids[0];
+      items.push(ids.length === 1 ? { k: "p", i, lat: LAT[i], lng: LNG[i] } : { k: "s", ids, lat: LAT[i], lng: LNG[i], n: ids.length });
+    }
+    items.sort((a, b) => (a.k === "c") - (b.k === "c"));
+    this.items = items;
+    this.draw();
+    if (mode.kind === "view") refreshList();
+    if (z >= 12) {
+      const pts = items.filter(it => it.k !== "c").map(it => it.i ?? it.ids[0]);
+      if (pts.length) ensure(pts).catch(() => {});
+    }
+  },
+  draw() {
+    const m = map, size = m.getSize(), dpr = window.devicePixelRatio || 1, c = this._c;
+    if (c.width !== size.x * dpr || c.height !== size.y * dpr) { c.width = size.x * dpr; c.height = size.y * dpr; c.style.width = size.x + "px"; c.style.height = size.y + "px"; }
+    L.DomUtil.setPosition(c, m.containerPointToLayerPoint([0, 0]));
+    const ctx = c.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size.x, size.y);
+    const z = m.getZoom();
+    if (mapStyle === "simple") this.drawCountyLabels(ctx, z);
+    for (const it of this.items) {
+      const p = m.latLngToContainerPoint([it.lat, it.lng]);
+      if (p.x < -40 || p.y < -40 || p.x > size.x + 40 || p.y > size.y + 40) continue;
+      it.x = p.x; it.y = p.y;
+      if (it.k === "p") { it.r = 5; dot(ctx, p.x, p.y, 5, groupOf(it.i)); }
+      else if (it.k === "s") {
+        it.r = 9;
+        const g = groupOf(it.ids[0]), same = it.ids.every(i => groupOf(i) === g);
+        ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, 7);
+        ctx.fillStyle = same && g < 3 ? T["g" + g] : T.cluster; ctx.fill();
+        ctx.lineWidth = 2; ctx.strokeStyle = T.ring; ctx.stroke();
+        ctx.fillStyle = same && g < 3 ? "#fff" : T["cluster-ink"]; ctx.font = "700 10px " + uiFont; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(it.n > 99 ? "99+" : it.n, p.x, p.y + 0.5);
+      } else {
+        const r = it.r = 8 + 4 * Math.log10(it.n);
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7);
+        ctx.globalAlpha = 0.9; ctx.fillStyle = T.cluster; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.lineWidth = 2; ctx.strokeStyle = T.ring; ctx.stroke();
+        ctx.fillStyle = T["cluster-ink"]; ctx.font = `700 ${r > 16 ? 12 : 11}px ${uiFont}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(short(it.n), p.x, p.y + 0.5);
+      }
+    }
+    if (hover >= 0 && hover !== selected) {
+      const p = m.latLngToContainerPoint([LAT[hover], LNG[hover]]);
+      ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, 7); ctx.lineWidth = 2; ctx.strokeStyle = T.ink; ctx.stroke();
+    }
+    if (selected >= 0) {
+      const p = m.latLngToContainerPoint([LAT[selected], LNG[selected]]);
+      ctx.beginPath(); ctx.arc(p.x, p.y, 11, 0, 7); ctx.lineWidth = 3; ctx.strokeStyle = T.ink; ctx.stroke();
+      dot(ctx, p.x, p.y, 6, groupOf(selected));
+    }
+    if (mapStyle === "simple") this.drawCityLabels(ctx, z, size);
+  },
+  drawCountyLabels(ctx, z) {
+    if (z < 8 || z > 11) return;
+    ctx.font = `700 10.5px ${uiFont}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = T.muted;
+    for (const f of base.counties) {
+      const [lat, lng] = f.properties.lp, p = map.latLngToContainerPoint([lat, lng]);
+      spaced(ctx, f.properties.name.replace(" County", "").toUpperCase(), p.x, p.y);
+    }
+  },
+  drawCityLabels(ctx, z, size) {
+    const n = z < 7 ? 10 : z < 8 ? 24 : z < 9 ? 50 : z < 10 ? 90 : base.cities.length;
+    const boxes = [];
+    ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+    for (let k = 0; k < n; k++) {
+      const [name, lat, lng, cnt] = base.cities[k];
+      const p = map.latLngToContainerPoint([lat, lng]);
+      if (p.x < -100 || p.y < -20 || p.x > size.x + 20 || p.y > size.y + 20) continue;
+      const big = k < 10 && z < 10;
+      ctx.font = `${big ? 700 : 600} ${big ? 13 : 12}px ${uiFont}`;
+      const w = ctx.measureText(name).width, x = p.x + 8, y = p.y - 12;
+      const bx = [x - 3, y - 9, x + w + 3, y + 9];
+      if (boxes.some(o => bx[0] < o[2] && bx[2] > o[0] && bx[1] < o[3] && bx[3] > o[1])) continue;
+      boxes.push(bx);
+      ctx.lineWidth = 3.5; ctx.strokeStyle = T.halo; ctx.strokeText(name, x, y);
+      ctx.fillStyle = T.ink; ctx.fillText(name, x, y);
+    }
+  },
+  hit(pt) {
+    for (let k = this.items.length - 1; k >= 0; k--) {
+      const it = this.items[k];
+      if (it.x == null) continue;
+      const dx = it.x - pt.x, dy = it.y - pt.y, r = (it.r || 5) + 5;
+      if (dx * dx + dy * dy <= r * r) return it;
+    }
+    return null;
+  },
+});
+let uiFont = '"Public Sans", system-ui, sans-serif';
+function dot(ctx, x, y, r, g) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
+  if (g === 3) {
+    ctx.fillStyle = T.ring; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = T.g3; ctx.stroke();
+  } else {
+    ctx.fillStyle = T["g" + g]; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = T.ring; ctx.stroke();
+  }
+}
+function spaced(ctx, text, x, y) {
+  const sp = 1.2, w = ctx.measureText(text).width + sp * (text.length - 1);
+  let cx = x - w / 2;
+  ctx.textAlign = "left";
+  for (const ch of text) { ctx.fillText(ch, cx, y); cx += ctx.measureText(ch).width + sp; }
+}
+
+let baseLayers = [], mapStyle = "simple";
+const tiles = {};
+function makeTiles() {
+  tiles.streets = L.tileLayer(ESRI + "World_Street_Map/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, maxNativeZoom: 18,
+    attribution: 'Map &copy; Esri, HERE, Garmin, USGS, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, and the GIS User Community' });
+  tiles.satellite = L.layerGroup([
+    L.tileLayer(ESRI + "World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, maxNativeZoom: 18,
+      attribution: "Imagery &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community" }),
+    L.tileLayer(ESRI + "Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, maxNativeZoom: 18 }),
+    L.tileLayer(ESRI + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, maxNativeZoom: 18 }),
+  ]);
+}
+function setMapStyle(name) {
+  mapStyle = name;
+  for (const k in tiles) map.removeLayer(tiles[k]);
+  baseLayers.forEach(l => map.removeLayer(l));
+  if (name === "simple") { baseLayers.forEach(l => l.addTo(map)); }
+  else tiles[name].addTo(map);
+  document.querySelectorAll(".styles button").forEach(b => b.setAttribute("aria-checked", String(b.dataset.style === name)));
+  try { localStorage.setItem("fl-care-map-style", name); } catch (e) { /* storage blocked: style just isn't remembered */ }
+  readTokens();
+  if (name === "simple") styleBase();
+  layer.draw();
+}
+function styleBase() {
+  const [nb, co, rd] = baseLayers;
+  nb.setStyle({ fillColor: T.neighbor, fillOpacity: 1, color: T.county, weight: 1 });
+  co.setStyle({ fillColor: T.land, fillOpacity: 1, color: T.county, weight: 1 });
+  const z = map.getZoom();
+  rd.setStyle(f => {
+    const k = f.properties.kind;
+    if (k === "primary") return { color: T["road-1"], weight: z >= 11 ? 3 : 2.2, opacity: 1 };
+    if (k === "us") return { color: T["road-2"], weight: z >= 11 ? 2.2 : 1.4, opacity: 1 };
+    return z >= 9 ? { color: T["road-2"], weight: z >= 12 ? 1.6 : 1, opacity: 1 } : { opacity: 0, weight: 0 };
+  });
+}
+
+function setupMap() {
+  map = L.map("map", { zoomControl: false, attributionControl: false, minZoom: 5.5, maxZoom: TILES ? 19 : 18, zoomSnap: 0.5,
+    maxBounds: [[23.2, -90], [32.5, -77.5]], maxBoundsViscosity: 0.7 });
+  map.fitBounds([[24.5, -87.6], [31.0, -80.0]]);
+  L.control.zoom({ position: "topright" }).addTo(map);
+  L.control.scale({ imperial: true, metric: false, position: "bottomleft" }).addTo(map);
+  L.control.attribution({ prefix: false, position: "bottomright" }).addAttribution("Data: CMS NPI Registry, U.S. Census").addTo(map);
+  const renderer = L.canvas({ padding: 0.5 });
+  baseLayers = [
+    L.geoJSON({ type: "FeatureCollection", features: base.neighbors }, { renderer, interactive: false }),
+    L.geoJSON({ type: "FeatureCollection", features: base.counties }, { renderer, interactive: false }),
+    L.geoJSON({ type: "FeatureCollection", features: base.roads }, { renderer, interactive: false }),
+  ];
+  map.on("zoomend", () => { if (mapStyle === "simple") styleBase(); });
+  layer = new PointsLayer().addTo(map);
+  let saved = null;
+  try { saved = localStorage.getItem("fl-care-map-style"); } catch (e) { /* storage blocked */ }
+  if (TILES) {
+    makeTiles();
+    const StyleControl = L.Control.extend({
+      onAdd() {
+        const d = L.DomUtil.create("div", "styles");
+        d.setAttribute("role", "radiogroup"); d.setAttribute("aria-label", "Map style");
+        d.innerHTML = [["streets", "Streets"], ["satellite", "Satellite"], ["simple", "Simple"]]
+          .map(([k, label]) => `<button type="button" role="radio" aria-checked="false" data-style="${k}">${label}</button>`).join("");
+        L.DomEvent.disableClickPropagation(d);
+        d.addEventListener("click", e => { const b = e.target.closest("button"); if (b) setMapStyle(b.dataset.style); });
+        return d;
+      },
+    });
+    new StyleControl({ position: "topleft" }).addTo(map);
+  }
+  setMapStyle(TILES ? (["streets", "satellite", "simple"].includes(saved) ? saved : "streets") : "simple");
+
+  const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; $("map").appendChild(tip);
+  map.on("mousemove", e => {
+    const it = layer.hit(e.containerPoint);
+    map.getContainer().style.cursor = it ? "pointer" : "";
+    if (!it) { tip.hidden = true; return; }
+    let html;
+    if (it.k === "c") html = `<b>${fmt(it.n)} places</b><span>Click to zoom in</span>`;
+    else if (it.k === "s") html = `<b>${fmt(it.n)} places at this spot</b><span>Click to list them</span>`;
+    else { const r = rec(it.i); html = `<b>${esc(r ? r[0] : P.categories[P.c[it.i]])}</b><span>${esc(r ? P.types[r[2]] : "Click for details")}</span>`; }
+    tip.innerHTML = html; tip.hidden = false;
+    const s = map.getSize(), x = e.containerPoint.x, y = e.containerPoint.y;
+    tip.style.left = Math.min(x + 14, s.x - 270) + "px"; tip.style.top = Math.max(y - 44, 8) + "px";
+  });
+  map.on("mouseout movestart", () => { tip.hidden = true; });
+  map.on("click", e => {
+    const it = layer.hit(e.containerPoint);
+    if (!it) return;
+    if (it.k === "c") {
+      const ez = index.getClusterExpansionZoom(it.id);
+      if (ez <= CLUSTER_MAX + 1) map.setView([it.lat, it.lng], Math.max(ez, map.getZoom() + 1));
+      else setMode({ kind: "spot", ids: index.getLeaves(it.id, Infinity).map(f => f.properties.i) });
+    } else if (it.k === "s") setMode({ kind: "spot", ids: it.ids });
+    else select(it.i, false);
+  });
+}
+
+// ---------- list & detail ----------
+function inView() {
+  const b = map.getBounds(), s = b.getSouth(), n = b.getNorth(), w = b.getWest(), e = b.getEast();
+  const out = [];
+  for (let i = 0; i < N; i++) if (pass[i] && LAT[i] >= s && LAT[i] <= n && LNG[i] >= w && LNG[i] <= e) out.push(i);
+  return out;
+}
+let listToken = 0;
+async function refreshList() {
+  if (!P || !$("detail").hidden) return;
+  const token = ++listToken;
+  let ids, title;
+  if (mode.kind === "view") {
+    ids = inView(); title = "Places in view";
+    $("resultsTitle").textContent = title;
+    $("resultsCount").textContent = fmt(ids.length);
+    if (ids.length > LIST_LIMIT) {
+      $("list").innerHTML = ""; $("more").hidden = true;
+      $("empty").hidden = false;
+      $("empty").textContent = `${fmt(ids.length)} places in this part of the map. Zoom in, click a circle, or search a ZIP code to list them.`;
+      return;
+    }
+    const c = map.getCenter();
+    ids.sort((a, b) => ((LAT[a] - c.lat) ** 2 + (LNG[a] - c.lng) ** 2) - ((LAT[b] - c.lat) ** 2 + (LNG[b] - c.lng) ** 2));
+  } else {
+    ids = mode.ids.filter(i => pass[i]);
+    title = mode.kind === "zip" ? `ZIP ${mode.zip}` : mode.kind === "city" ? mode.city : "Places at this spot";
+    $("resultsTitle").textContent = title;
+    $("resultsCount").textContent = fmt(ids.length) + (ids.length !== mode.ids.length ? ` of ${fmt(mode.ids.length)}` : "");
+  }
+  listIdx = ids; shown = 0;
+  $("list").innerHTML = "";
+  $("empty").hidden = ids.length > 0;
+  if (!ids.length) $("empty").textContent = mode.kind === "view" ? "No places match your filters here. Try zooming out or resetting the filters." : "No places here match your filters. Reset the filters to see all of them.";
+  await renderMore(token);
+}
+async function renderMore(token = listToken) {
+  const slice = listIdx.slice(shown, shown + PAGE);
+  if (!slice.length) { $("more").hidden = true; return; }
+  try { await ensure(slice); } catch (e) { $("empty").hidden = false; $("empty").textContent = "Couldn't load place details. Check your connection and try again."; return; }
+  if (token !== listToken) return;
+  const frag = document.createDocumentFragment();
+  for (const i of slice) {
+    const r = rec(i), li = document.createElement("li");
+    li.innerHTML = `<button class="item" type="button"><span class="swatch g${groupOf(i)}"></span><span class="t">${esc(r[0])}</span><span class="s">${esc(P.types[r[2]])} · ${esc(r[4])}, ${esc(P.cities[P.t[i]])} ${P.z[i]}</span></button>`;
+    li.firstChild.addEventListener("click", () => select(i, true));
+    li.firstChild.addEventListener("mouseenter", () => { hover = i; layer.draw(); });
+    frag.appendChild(li);
+  }
+  $("list").appendChild(frag);
+  shown += slice.length;
+  $("more").hidden = shown >= listIdx.length;
+  $("more").textContent = `Show ${fmt(Math.min(PAGE, listIdx.length - shown))} more`;
+}
+let hover = -1;
+
+async function select(i, fly) {
+  selected = i;
+  try { await ensure([i]); } catch (e) { setStatus("Couldn't load details for this place. Check your connection and try again."); return; }
+  const r = rec(i), g = groupOf(i), f = P.f[i];
+  const flags = FLAGS.filter(x => f & x.bit).map(x => `<span class="pill flag">${esc(x.label)}</span>`).join("");
+  const why = [[128, "name mentions scoliosis"], [256, "registered spine, neuro or pediatric orthopedic surgery"], [512, "name mentions spine"], [1024, "makes or fits braces"]]
+    .filter(([b]) => f & b).map(([, t]) => t);
+  const addr = `${r[4]}, ${P.cities[P.t[i]]}, FL ${P.z[i]}`;
+  const d = $("detail");
+  d.innerHTML = `
+    <div><button class="btn ghost" type="button" id="back">← Back to list</button></div>
+    <h2>${esc(r[0])}</h2>
+    ${r[1] ? `<p class="aka">Also known as ${esc(r[1])}</p>` : ""}
+    <div class="kind"><span class="swatch g${g}"></span>${esc(P.categories[P.c[i]])}</div>
+    <dl class="facts">
+      <dt>Type</dt><dd>${esc(P.types[r[2]])}</dd>
+      <dt>Address</dt><dd>${esc(r[4])}<br>${esc(P.cities[P.t[i]])}, FL ${P.z[i]}<br><span style="color:var(--ink-2)">${esc(P.counties[r[7]] || "")}</span></dd>
+      ${r[5] ? `<dt>Phone</dt><dd><span class="phone" id="phone">${esc(r[5])}</span> <button class="btn ghost" type="button" id="copy">Copy</button></dd>` : ""}
+      <dt>NPI</dt><dd class="phone">${esc(r[6])}</dd>
+      <dt>Updated</dt><dd>${esc(r[8])}</dd>
+    </dl>
+    ${r[3].length ? `<div><p class="eyebrow">Registered specialties</p><div class="pills" style="margin-top:6px">${r[3].map(s => `<span class="pill">${esc(P.specialties[s])}</span>`).join("")}</div></div>` : ""}
+    ${flags ? `<div><p class="eyebrow">Offers</p><div class="pills" style="margin-top:6px">${flags}</div></div>` : ""}
+    ${why.length ? `<p class="note">Spine-related because its ${esc(why.join("; "))}. Call to confirm they treat scoliosis.</p>` : ""}
+    ${f & APPROX ? `<p class="note">The address couldn't be matched exactly, so the dot sits at the center of ZIP ${P.z[i]}.</p>` : ""}
+    <div class="actions">
+      <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r[0] + ", " + addr)}" target="_blank" rel="noopener">Open in Google Maps</a>
+      <a href="https://npiregistry.cms.hhs.gov/provider-view/${encodeURIComponent(r[6])}" target="_blank" rel="noopener">Official registry record</a>
+    </div>`;
+  $("results").hidden = true; d.hidden = false;
+  $("back").addEventListener("click", closeDetail);
+  const copy = $("copy");
+  if (copy) copy.addEventListener("click", () => {
+    navigator.clipboard.writeText(r[5]).then(() => { copy.textContent = "Copied"; }, () => {
+      const s = window.getSelection(), rg = document.createRange(); rg.selectNodeContents($("phone")); s.removeAllRanges(); s.addRange(rg); copy.textContent = "Selected";
+    });
+  });
+  d.scrollIntoView({ block: "nearest" });
+  $("back").focus({ preventScroll: true });
+  if (fly || map.getZoom() < 14) map.setView([LAT[i], LNG[i]], Math.max(map.getZoom(), 15));
+  else layer.draw();
+}
+function closeDetail() {
+  selected = -1;
+  $("detail").hidden = true; $("results").hidden = false;
+  layer.draw(); refreshList();
+}
+
+// ---------- search ----------
+function setStatus(html, clear) {
+  $("status").innerHTML = html ? `<span>${html}</span>${clear ? '<button class="btn ghost" type="button" id="clear">Clear search</button>' : ""}` : "";
+  const c = $("clear"); if (c) c.addEventListener("click", () => { $("q").value = ""; setStatus(""); setMode({ kind: "view" }); });
+}
+function setMode(m) {
+  mode = m;
+  if (!$("detail").hidden) { selected = -1; $("detail").hidden = true; $("results").hidden = false; layer.draw(); }
+  if (m.kind === "spot") setStatus(`Showing ${fmt(m.ids.length)} places at one spot.`, true);
+  refreshList();
+}
+function fitTo(ids) {
+  const exact = ids.filter(i => !(P.f[i] & APPROX)), use = exact.length ? exact : ids;
+  const la = use.map(i => LAT[i]).sort((a, b) => a - b), ln = use.map(i => LNG[i]).sort((a, b) => a - b);
+  const q = (a, p) => a[Math.min(a.length - 1, Math.floor(p * (a.length - 1)))];
+  const lo = use.length > 20 ? 0.03 : 0, hi = 1 - lo;
+  map.fitBounds([[q(la, lo), q(ln, lo)], [q(la, hi), q(ln, hi)]], { padding: [30, 30], maxZoom: 15 });
+}
+function search(qs) {
+  const q = qs.trim();
+  if (!q) { setStatus(""); setMode({ kind: "view" }); return; }
+  if (/^\d{5}$/.test(q)) {
+    const z = +q, ids = [];
+    let lo = 0, hi = N;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (P.z[m] < z) lo = m + 1; else hi = m; }
+    for (let i = lo; i < N && P.z[i] === z; i++) ids.push(i);
+    if (ids.length) {
+      setStatus(`${fmt(ids.length)} registered places in ZIP ${q}.`, true);
+      mode = { kind: "zip", zip: q, ids }; fitTo(ids); setMode(mode);
+    } else if (base.zips[q]) {
+      setStatus(`No registered places in ZIP ${q}. Showing the area around it.`, true);
+      map.setView(base.zips[q], 13); setMode({ kind: "view" });
+    } else setStatus(`${esc(q)} isn't a Florida ZIP code. Florida ZIP codes start with 32, 33 or 34.`, true);
+    return;
+  }
+  const lower = q.toLowerCase().replace(/,?\s*(fl|florida)$/, "").trim();
+  let t = P.cities.findIndex(c => c.toLowerCase() === lower);
+  if (t < 0) t = P.cities.findIndex(c => c.toLowerCase().startsWith(lower));
+  if (t < 0) { setStatus(`No Florida city named “${esc(q)}” in the registry. Try a 5-digit ZIP code.`, true); return; }
+  const ids = []; for (let i = 0; i < N; i++) if (P.t[i] === t) ids.push(i);
+  setStatus(`${fmt(ids.length)} registered places in ${esc(P.cities[t])}.`, true);
+  mode = { kind: "city", city: P.cities[t], ids }; fitTo(ids); setMode(mode);
+}
+
+function showLoading(t) { const l = $("loading"); l.textContent = t; l.hidden = false; }
+function hideLoading() { $("loading").hidden = true; }
+
+// ---------- boot ----------
+async function boot() {
+  readTokens();
+  if (matchMedia("(max-width: 760px)").matches) $("filters").open = false;
+  try {
+    base = await fetch("data/basemap.json").then(r => r.json());
+    setupMap();
+    showLoading("Loading 175,000 places…");
+    P = await fetch("data/points.json").then(r => r.json());
+  } catch (e) {
+    showLoading("The map data didn't load. Refresh the page to try again.");
+    return;
+  }
+  N = P.y.length;
+  LAT = new Float64Array(N); LNG = new Float64Array(N);
+  feats = new Array(N);
+  for (let i = 0; i < N; i++) {
+    LAT[i] = P.y[i] / 1e5 + 24; LNG[i] = -(P.x[i] / 1e5 + 79);
+    feats[i] = { type: "Feature", properties: { i }, geometry: { type: "Point", coordinates: [LNG[i], LAT[i]] } };
+  }
+  catOn = P.categories.map(() => true);
+  $("cityList").innerHTML = P.cities.map(c => `<option value="${esc(c)}">`).join("");
+  buildFilters();
+  applyFilters();
+  $("searchForm").addEventListener("submit", e => { e.preventDefault(); search($("q").value); });
+  $("more").addEventListener("click", () => renderMore());
+  $("list").addEventListener("mouseleave", () => { hover = -1; layer.draw(); });
+  const retheme = () => {
+    readTokens();
+    if (mapStyle === "simple") styleBase();
+    layer.draw();
+  };
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", retheme);
+  new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  if (document.fonts) document.fonts.ready.then(() => layer.draw());
+}
+boot();
+})();
+</script>
