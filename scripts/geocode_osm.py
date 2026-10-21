@@ -7,7 +7,7 @@ per second, an identifying User-Agent, and every answer cached in data/geocode/o
 failed because of a network error. Only house-level matches inside the same ZIP code or city are
 kept; anything vaguer stays at the ZIP-code center.
 
-Takes about 2.5 hours for ~9,000 addresses. Safe to stop and re-run.
+Takes about 4 hours for ~9,000 addresses. Safe to stop and re-run.
 
 usage: python scripts/geocode_osm.py
 """

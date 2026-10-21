@@ -213,7 +213,7 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
     <section class="detail" id="detail" hidden></section>
 
     <footer class="source">
-      <p>Source: U.S. NPI Registry (CMS), Oct 21, 2026. Map positions from U.S. Census and OpenStreetMap address lookups; places neither could match sit at the center of their ZIP code. Registrations are self-reported, so call ahead to confirm services.</p>
+      <p>Source: U.S. NPI Registry (CMS), Oct 21, 2026. Map positions from U.S. Census and OpenStreetMap (© OpenStreetMap contributors) address lookups; places neither could match sit near the center of their ZIP code or city. Registrations are self-reported, so call ahead to confirm services.</p>
     </footer>
   </aside>
   <div id="map" role="application" aria-label="Map of Florida healthcare places"><div class="loading" id="loading">Loading places…</div></div>
@@ -239,6 +239,8 @@ const canHover = matchMedia("(hover: hover)").matches;
 
 const $ = id => document.getElementById(id);
 const fmt = n => n.toLocaleString("en-US");
+const places = n => `${fmt(n)} ${n === 1 ? "place" : "places"}`;
+const CITY_WORDS = {"bch": "beach", "e": "east", "ft": "fort", "gdns": "gardens", "grdns": "gardens", "hbr": "harbor", "hts": "heights", "is": "island", "islands": "island", "jax": "jacksonville", "lks": "lakes", "mt": "mount", "n": "north", "no": "north", "pk": "park", "pnes": "pines", "pt": "port", "s": "south", "shrs": "shores", "so": "south", "spg": "springs", "spgs": "springs", "st": "saint", "ste": "sainte", "vlg": "village", "w": "west"};   // filled in by build_site.py from scripts/facilities.py
 const short = n => n >= 10000 ? Math.round(n / 1000) + "k" : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -246,7 +248,7 @@ let P, N, LAT, LNG, feats, index, base, map, layer;
 let catOn = [], must = 0, pass;
 let mode = { kind: "view" };      // view | zip | city | spot
 let listIdx = [], shown = 0, selected = -1;
-let back = null, listDirty = false, keepNextMove = false, selToken = 0;   // "Back to list" state
+let back = null, listDirty = false, keepView = null, selToken = 0;   // "Back to list" state
 let cityIndex = new Map();        // spelling-insensitive city key -> { t: [city ids], n: places, name }
 const details = {};               // zip3 -> Promise<array>
 
@@ -378,7 +380,9 @@ const PointsLayer = L.Layer.extend({
     this.items = items;
     this.draw();
     if (mode.kind === "view") {
-      if (keepNextMove) keepNextMove = false;
+      const restoring = keepView && sameView(keepView);
+      keepView = null;
+      if (restoring) { /* back at the view the list was made for: keep it as it was */ }
       else if ($("detail").hidden) refreshList();
       else if (!back || !back.view) listDirty = true;
     }
@@ -525,7 +529,7 @@ function setupMap() {
   map.fitBounds([[24.5, -87.6], [31.0, -80.0]]);
   L.control.zoom({ position: "topright" }).addTo(map);
   L.control.scale({ imperial: true, metric: false, position: "bottomleft" }).addTo(map);
-  L.control.attribution({ prefix: false, position: "bottomright" }).addAttribution("Data: CMS NPI Registry, U.S. Census").addTo(map);
+  L.control.attribution({ prefix: false, position: "bottomright" }).addAttribution('Data: CMS NPI Registry, U.S. Census, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors').addTo(map);
   const renderer = L.canvas({ padding: 0.5 });
   baseLayers = [
     L.geoJSON({ type: "FeatureCollection", features: base.neighbors }, { renderer, interactive: false }),
@@ -560,8 +564,8 @@ function setupMap() {
     map.getContainer().style.cursor = it ? "pointer" : "";
     if (!it) { tip.hidden = true; return; }
     let html;
-    if (it.k === "c") html = `<b>${fmt(it.n)} places</b><span>Click to zoom in</span>`;
-    else if (it.k === "s") html = `<b>${fmt(it.n)} places at this spot</b><span>Click to list them</span>`;
+    if (it.k === "c") html = `<b>${places(it.n)}</b><span>Click to zoom in</span>`;
+    else if (it.k === "s") html = `<b>${places(it.n)} at this spot</b><span>Click to list them</span>`;
     else { const r = rec(it.i); html = `<b>${esc(r ? r[0] : P.categories[P.c[it.i]])}</b><span>${esc(r ? P.types[r[2]] : "Click for details")}</span>`; }
     tip.innerHTML = html; tip.hidden = false;
     const s = map.getSize(), x = e.containerPoint.x, y = e.containerPoint.y;
@@ -604,10 +608,10 @@ async function refreshList() {
     $("resultsTitle").textContent = title;
     $("resultsCount").textContent = fmt(ids.length);
     if (ids.length > LIST_LIMIT) {
-      announce(`${fmt(ids.length)} places in view. Zoom in to list them.`);
+      announce(`${places(ids.length)} in view. Zoom in to list them.`);
       $("list").innerHTML = ""; $("more").hidden = true;
       $("empty").hidden = false;
-      $("empty").textContent = `${fmt(ids.length)} places in this part of the map. Zoom in, click a circle, or search a ZIP code to list them.`;
+      $("empty").textContent = `${places(ids.length)} in this part of the map. Zoom in, click a circle, or search a ZIP code to list them.`;
       return;
     }
     const c = map.getCenter();
@@ -619,7 +623,7 @@ async function refreshList() {
     $("resultsCount").textContent = fmt(ids.length) + (ids.length !== mode.ids.length ? ` of ${fmt(mode.ids.length)}` : "");
   }
   listIdx = ids; shown = 0;
-  announce(`${fmt(ids.length)} places ${mode.kind === "view" ? "in view" : "in " + title}`);
+  announce(`${places(ids.length)} ${mode.kind === "view" ? "in view" : "in " + title}`);
   $("list").innerHTML = ""; $("more").hidden = true;
   $("empty").hidden = ids.length > 0;
   if (!ids.length) $("empty").textContent = mode.kind === "view" ? "No places match your filters here. Try zooming out or resetting the filters." : "No places here match your filters. Reset the filters to see all of them.";
@@ -628,13 +632,15 @@ async function refreshList() {
 async function renderMore(token = listToken) {
   const start = shown, slice = listIdx.slice(start, start + PAGE);
   if (!slice.length) { $("more").hidden = true; return; }
-  $("more").disabled = true;
+  if (moreBusy === token) return;   // already loading this page
+  moreBusy = token; $("more").setAttribute("aria-busy", "true");
   try { await ensure(slice); } catch (e) {
-    if (token === listToken) { $("more").disabled = false; $("empty").hidden = false; $("empty").textContent = "Couldn't load place details. Check your connection and try again."; }
+    if (token === listToken) { $("empty").hidden = false; $("empty").textContent = "Couldn't load place details. Check your connection and try again."; }
     return;
+  } finally {
+    if (moreBusy === token) { moreBusy = -1; $("more").removeAttribute("aria-busy"); }
   }
   if (token !== listToken || shown !== start) return;
-  $("more").disabled = false;
   const frag = document.createDocumentFragment();
   for (const i of slice) {
     const r = rec(i), li = document.createElement("li");
@@ -648,7 +654,7 @@ async function renderMore(token = listToken) {
   $("more").hidden = shown >= listIdx.length;
   $("more").textContent = `Show ${fmt(Math.max(0, Math.min(PAGE, listIdx.length - shown)))} more`;
 }
-let hover = -1;
+let hover = -1, moreBusy = -1;
 
 async function select(i, fly) {
   const tok = ++selToken;
@@ -683,7 +689,7 @@ async function select(i, fly) {
     ${r[3].length ? `<div><p class="eyebrow">Registered specialties</p><div class="pills" style="margin-top:6px">${r[3].map(s => `<span class="pill">${esc(P.specialties[s])}</span>`).join("")}</div></div>` : ""}
     ${flags ? `<div><p class="eyebrow">Tagged as</p><div class="pills" style="margin-top:6px">${flags}</div></div>` : ""}
     ${why.length ? `<p class="note">Tagged spine-related because ${esc(why.join("; "))}. Call to confirm they treat scoliosis.</p>` : ""}
-    ${f & APPROX ? `<p class="note">The address couldn't be matched exactly, so the dot sits at the center of its ZIP code area.</p>` : ""}
+    ${f & APPROX ? `<p class="note">The address couldn't be matched exactly, so the dot sits near the center of its ZIP code or city.</p>` : ""}
     <div class="actions">
       <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r[0] + ", " + addr)}" target="_blank" rel="noopener">Open in Google Maps</a>
       <a href="https://npiregistry.cms.hhs.gov/provider-view/${encodeURIComponent(r[6])}" target="_blank" rel="noopener">Official registry record</a>
@@ -701,13 +707,18 @@ async function select(i, fly) {
   if (fly || map.getZoom() < 14) map.setView([LAT[i], LNG[i]], Math.max(map.getZoom(), 15));
   else layer.draw();
 }
+function sameView(v) {
+  return map.getZoom() === v.z && map.getCenter().equals(v.c, 1e-9);
+}
 function closeDetail() {
+  if (map._animatingZoom) { map.once("zoomend", closeDetail); return; }   // finish the zoom, then go back
+  map.stop();   // end any glide while the place is still open, so its last move can't reset the list
   selToken++;
   selected = -1;
-  $("detail").hidden = true; $("results").hidden = false;
   const b = back; back = null;
-  if (b && b.view && !(map.getCenter().equals(b.view.c) && map.getZoom() === b.view.z)) {
-    keepNextMove = !listDirty;   // returning to the earlier view: keep the list as it was
+  $("detail").hidden = true; $("results").hidden = false;
+  if (b && b.view && !sameView(b.view)) {
+    keepView = listDirty ? null : b.view;   // returning to the earlier view: keep the list as it was
     map.setView(b.view.c, b.view.z, { animate: false });
   }
   if (listDirty || !b) {
@@ -729,9 +740,9 @@ function setStatus(html, clear) {
 }
 function setMode(m) {
   mode = m;
-  selToken++; back = null; listDirty = false; keepNextMove = false;
+  selToken++; back = null; listDirty = false; keepView = null;
   if (!$("detail").hidden) { selected = -1; $("detail").hidden = true; $("results").hidden = false; layer.draw(); }
-  if (m.kind === "spot") setStatus(`Showing ${fmt(m.ids.length)} places at one spot.`, true);
+  if (m.kind === "spot") setStatus(`Showing ${places(m.ids.length)} at one spot.`, true);
   refreshList();
 }
 function fitTo(ids) {
@@ -750,7 +761,7 @@ function search(qs) {
     while (lo < hi) { const m = (lo + hi) >> 1; if (P.z[m] < z) lo = m + 1; else hi = m; }
     for (let i = lo; i < N && P.z[i] === z; i++) ids.push(i);
     if (ids.length) {
-      setStatus(`${fmt(ids.length)} registered places in ZIP ${q}.`, true);
+      setStatus(`${places(ids.length)} registered in ZIP ${q}.`, true);
       mode = { kind: "zip", zip: q, ids }; fitTo(ids); setMode(mode);
     } else if (base.zips[q]) {
       setStatus(`No registered places in ZIP ${q}. Showing the area around it.`, true);
@@ -760,25 +771,38 @@ function search(qs) {
   }
   const k = cityKey(q);
   if (!k || k === "fl" || k === "florida") { setStatus("Type a 5-digit ZIP code or a Florida city name, like Tampa.", true); return; }
+  // Partly typed names: the last word may be unfinished ("Coral S"), so also try it exactly as typed
+  const words = cityWords(q), last = words.pop() || "";
+  const typed = words.length ? cityKey(words.join(" ")) + " " + last : last;
+  let best = null;
+  if (q.replace(/[^a-z]/gi, "").length >= 2)
+    for (const [key, v] of cityIndex)
+      if (key !== k && (key.startsWith(k) || key.startsWith(typed)) && (!best || v.n > best.n)) best = v;
+  // Short forms: each typed word shortens the city's word ("Fern Bch" -> Fernandina Beach)
+  if (!best) for (const [key, v] of cityIndex) if (abbreviates(k, key) && (!best || v.n > best.n)) best = v;
   let city = cityIndex.get(k);
-  if (!city && k.length >= 3) {
-    // Partly typed: the biggest city whose name starts with what was typed
-    for (const [key, v] of cityIndex) if (key.startsWith(k) && (!city || v.n > city.n)) city = v;
-  }
+  // A tiny exact match loses to a much bigger city the words start ("St Pete" -> St. Petersburg)
+  if (!city || (best && city.n < 5 && best.n >= 50 * city.n)) city = best || city;
   if (!city) { setStatus(`No Florida city named “${esc(q)}” in the registry. Try a 5-digit ZIP code.`, true); return; }
   const ts = new Set(city.t), ids = [];
   for (let i = 0; i < N; i++) if (ts.has(P.t[i])) ids.push(i);
-  setStatus(`${fmt(ids.length)} registered places in ${esc(city.name)}.`, true);
+  setStatus(`${places(ids.length)} registered in ${esc(city.name)}.`, true);
   mode = { kind: "city", city: city.name, ids }; fitTo(ids); setMode(mode);
 }
 // Same rules as city_key() in scripts/facilities.py: "St. Petersburg, FL" and "Saint Petersburg" match
+function cityWords(c) {
+  const k = (c || "").toLowerCase().replace(/[.,'’\-]/g, " ")
+    .replace(/\s+(fl|florida)(\s+\d{5})?\s*$/, "").replace(/\s+\d{5}\s*$/, "");
+  return k.split(/\s+/).filter(Boolean);
+}
 function cityKey(c) {
-  let k = (c || "").toLowerCase().replace(/[.,'’\-]/g, " ");
-  k = k.replace(/\s+(fl|florida)(\s+\d{5})?\s*$/, "").replace(/\s+\d{5}\s*$/, "");
-  for (const [s, full] of [["st", "saint"], ["ste", "sainte"], ["ft", "fort"], ["pt", "port"], ["mt", "mount"],
-                           ["n", "north"], ["s", "south"], ["e", "east"], ["w", "west"]])
-    k = k.replace(new RegExp(`\\b${s}\\b`, "g"), full);
-  return k.replace(/\s+/g, " ").trim();
+  return cityWords(c).map(w => CITY_WORDS[w] || w).join(" ");
+}
+// Same rule as abbreviates() in scripts/facilities.py
+function abbreviates(short, full) {
+  const a = short.split(" "), b = full.split(" ");
+  const shortens = (x, y) => { if (x === y) return true; if (x[0] !== y[0]) return false; let j = 0; for (const ch of y) if (ch === x[j]) j++; return j === x.length; };
+  return short !== full && a.length === b.length && a.every((x, i) => shortens(x, b[i]));
 }
 function buildCityIndex() {
   const counts = new Array(P.cities.length).fill(0);

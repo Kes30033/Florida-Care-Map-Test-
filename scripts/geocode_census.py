@@ -106,7 +106,7 @@ def main():
             if out:
                 for i, (status, lat, lon) in parse(out).items():
                     cache[todo[i]] = {"status": status, "lat": lat, "lon": lon}
-    save_cache(cache)
+                save_cache(cache)   # after every batch, so an interrupted run keeps what's done
     shutil.rmtree(TMP, ignore_errors=True)
     matched = sum(1 for k in todo if cache.get(k, {}).get("status") == "Match")
     print(f"looked up {len(todo)}: {matched} matched exactly")

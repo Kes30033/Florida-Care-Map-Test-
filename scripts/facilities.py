@@ -168,16 +168,30 @@ def county(z):
     return county_cache[z]
 
 
-def city_key(c):
-    """Spelling-insensitive key for a city name: 'St. Petersburg, FL' and 'Saint Petersburg' match.
-    site/index.template.html has the same rules in cityKey(); keep the two in step."""
+# Words that mean the same thing in a city name. build_site.py passes this table to the page's cityKey(),
+# so the website's city search follows exactly the same rules.
+CITY_WORDS = {
+    "st": "saint", "ste": "sainte", "ft": "fort", "pt": "port", "mt": "mount",
+    "n": "north", "no": "north", "s": "south", "so": "south", "e": "east", "w": "west",
+    "bch": "beach", "gdns": "gardens", "grdns": "gardens", "spgs": "springs", "spg": "springs",
+    "is": "island", "islands": "island", "pk": "park", "hbr": "harbor", "hts": "heights",
+    "vlg": "village", "lks": "lakes", "shrs": "shores", "pnes": "pines", "jax": "jacksonville",
+}
+# Abbreviations readable_city() doesn't spell out itself, so a spelling without them is preferred for display
+ABBREVIATIONS = set(CITY_WORDS) - {"st", "ste", "ft", "pt", "mt", "n", "s", "e", "w", "islands"}
+
+
+def city_words(c):
     k = re.sub(r"[.,'’\-]", " ", (c or "").lower())
     k = re.sub(r"\s+(fl|florida)(\s+\d{5})?\s*$", "", k)
     k = re.sub(r"\s+\d{5}\s*$", "", k)
-    for short, full in (("st", "saint"), ("ste", "sainte"), ("ft", "fort"), ("pt", "port"), ("mt", "mount"),
-                        ("n", "north"), ("s", "south"), ("e", "east"), ("w", "west")):
-        k = re.sub(rf"\b{short}\b", full, k)
-    return re.sub(r"\s+", " ", k).strip()
+    return k.split()
+
+
+def city_key(c):
+    """Spelling-insensitive key for a city name: 'St. Petersburg, FL', 'Saint Petersburg' and
+    'ST PETERSBURG' match, as do 'West Palm Bch' and 'West Palm Beach'."""
+    return " ".join(CITY_WORDS.get(w, w) for w in city_words(c))
 
 
 def zip_cities(z):
@@ -186,32 +200,63 @@ def zip_cities(z):
     return [m[0]["city"], *m[0]["acceptable_cities"]] if m else []
 
 
-def canonical_cities(pairs):
-    """Map each (registry city, ZIP) to one clean spelling.
+def florida_city_names():
+    """(city key -> USPS spellings of every Florida city name, keys that are some ZIP's main city name)"""
+    names, primary = {}, set()
+    for z in zipcodes.filter_by(state="FL"):
+        primary.add(city_key(z["city"]))
+        for n in [z["city"], *z["acceptable_cities"]]:
+            names.setdefault(city_key(n), []).append(title(n))
+    return names, primary
 
-    Uses the USPS name for the ZIP when the registry city is that name in another spelling or with a
-    small typo ('Ft Lauderdale', 'Fort Lauderdle'); otherwise the most common registry spelling of the city."""
-    spellings = {}
+
+def abbreviates(short, full):
+    """True when each word of `short` is a shortening of the matching word of `full`:
+    'fern beach' / 'fernandina beach', 'sunny isl beach' / 'sunny isles beach'."""
+    a, b = short.split(), full.split()
+
+    def shortens(x, y):
+        it = iter(y)
+        return x == y or (x[0] == y[0] and all(ch in it for ch in x))
+    return short != full and len(a) == len(b) and all(shortens(x, y) for x, y in zip(a, b))
+
+
+def canonical_cities(pairs):
+    """Map each (registry city, ZIP) to one clean spelling, so each city has a single name.
+
+    - A Florida city's main name in any spelling ('Ft Lauderdale', 'West Palm Bch') keeps its city.
+    - A shortened, nickname or misspelled name is matched to a USPS city for that ZIP ('St.Pete', 'Fern Bch',
+      'Fernandina', 'Fort Lauderdle'); other real places, like Aventura, keep their own name.
+    - Anything else keeps its most common registry spelling.
+    The display spelling avoids postal abbreviations where any spelling without them exists."""
+    usps, primary = florida_city_names()
+    registry = {}
     for c, _ in pairs:
-        spellings.setdefault(city_key(c), Counter())[title(c).strip(" ,.")] += 1
-    common = {k: cnt.most_common(1)[0][0] for k, cnt in spellings.items()}
+        registry.setdefault(city_key(c), Counter())[title(c).strip(" ,.")] += 1
+
+    def display(k):
+        cands = [(not any(w in ABBREVIATIONS for w in city_words(n)), cnt, n) for n, cnt in registry.get(k, {}).items()]
+        cands += [(not any(w in ABBREVIATIONS for w in city_words(n)), 0, n) for n in usps.get(k, [])]
+        return readable_city(max(cands)[2]) if cands else None
+
     out = {}
     for c, z in set(pairs):
         k = city_key(c)
-        usps = {city_key(u): title(u) for u in zip_cities(z)}
-        if k in usps:
-            name = usps[k]
-        else:
-            close = difflib.get_close_matches(k, list(usps), n=1, cutoff=0.85) if k else []
-            name = usps[close[0]] if close else common.get(k) or title(c)
-        out[c, z] = readable_city(name)
+        target = k
+        if k and k not in primary:
+            here = [city_key(u) for u in zip_cities(z)]
+            shorter = [h for h in here if abbreviates(k, h)]
+            longer = [h for h in here if len(k) >= 4 and h != k and h.startswith(k)]
+            close = difflib.get_close_matches(k, here, n=1, cutoff=0.85) if k not in usps else []
+            target = (shorter or longer or close or [k])[0]
+        out[c, z] = display(target) or readable_city(title(c))
     return out
 
 
 def readable_city(name):
-    """Spell out postal abbreviations the way the cities write their own names: Ft Lauderdale -> Fort Lauderdale,
-    St Petersburg -> St. Petersburg, N Miami Beach -> North Miami Beach."""
-    for short, full in ((r"Ft\.?", "Fort"), (r"Pt\.?", "Port"), (r"Mt\.?", "Mount"), (r"St(?!\.)", "St."),
+    """Write abbreviations the way the cities write their own names: Ft Lauderdale -> Fort Lauderdale,
+    Saint Petersburg / St Petersburg -> St. Petersburg, N Miami Beach -> North Miami Beach."""
+    for short, full in ((r"Ft\.?", "Fort"), (r"Pt\.?", "Port"), (r"Mt\.?", "Mount"), (r"(St|Saint)(?!\.)", "St."),
                         (r"N\.?", "North"), (r"S\.?", "South"), (r"E\.?", "East"), (r"W\.?", "West")):
         name = re.sub(rf"\b{short}(?= \w)", full, name)
     return name

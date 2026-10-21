@@ -23,7 +23,7 @@ about 175,000 places in all.
 |---|---|
 | Places, types, specialties, addresses, phones | [NPI Registry](https://npiregistry.cms.hhs.gov/) (U.S. Centers for Medicare & Medicaid Services). Every healthcare organization that bills insurance must register. Downloaded on the date in `data/raw/DOWNLOADED_ON`. |
 | Specialty names | [NUCC Health Care Provider Taxonomy](https://www.nucc.org/), version 26.1 |
-| Map positions | [U.S. Census Bureau geocoder](https://geocoding.geo.census.gov/), then [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/) for addresses the Census couldn't match |
+| Map positions | [U.S. Census Bureau geocoder](https://geocoding.geo.census.gov/), then [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/) (© OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright)) for addresses the Census couldn't match |
 | Counties, highways (Simple map) | U.S. Census Bureau cartographic boundary and TIGER files |
 | Street and satellite maps | Esri World Street Map and World Imagery |
 
@@ -37,8 +37,11 @@ about 175,000 places in all.
 - **Big hospital systems register many departments separately**, so one hospital can appear several times.
 - **Only the main practice address is shown**, even if a place has other locations.
 - **Solo doctors** registered only as individuals (not as a business) aren't included.
+- **City names are tidied:** the registry spells some cities several ways ("Ft Lauderdale", "Fort
+  Lauderdale", "Ft. Laud"), so each place is filed under one name per city, matched to the USPS name
+  for its ZIP code where possible.
 - **Map positions:** most places sit at their exact street address. Places whose address couldn't
-  be matched sit at the center of their ZIP code, and their page says so.
+  be matched sit near the center of their ZIP code (or city), and their page says so.
 - **Map images:** Esri's free map images are fine for a test site. For heavy public use, create a
   free [ArcGIS Location Platform](https://location.arcgis.com/) account and follow Esri's terms.
 
@@ -64,7 +67,7 @@ Needs Python 3.10+ and `pip install -r requirements.txt`. Run from the repositor
 python scripts/download_registry.py   # ~30 min: fresh download from the NPI Registry
 python scripts/build_spreadsheet.py   # ~1 min: rebuilds the spreadsheet
 python scripts/geocode_census.py      # map positions for new addresses (~20 min the first time, minutes after)
-python scripts/geocode_osm.py         # second try for addresses Census couldn't match (~2.5 h the first time)
+python scripts/geocode_osm.py         # second try for addresses Census couldn't match (~4 h the first time)
 python scripts/make_basemap.py        # ~10 s: counties and highways (only needed once)
 python scripts/build_site.py          # ~1 min: rebuilds the website in docs/
 ```

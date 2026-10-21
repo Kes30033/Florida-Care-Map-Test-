@@ -19,7 +19,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from facilities import ROOT, load_rows
+from facilities import CITY_WORDS, ROOT, load_rows
 from geocode_census import load_cache
 from geocode_osm import load_cache_osm
 
@@ -171,6 +171,7 @@ def main():
     page = (SITE / "index.template.html").read_text(encoding="utf-8")
     d = datetime.date.fromisoformat(updated)
     page = page.replace("<!--UPDATED-->", f"{d:%b} {d.day}, {d.year}")
+    page = page.replace("/*CITY_WORDS*/{}", json.dumps(CITY_WORDS, sort_keys=True))
     if args.artifact:
         # Claude artifacts wrap the page in their own <html> skeleton and only allow scripts from CDNs
         css = (SITE / "vendor/leaflet-1.9.4.css").read_text(encoding="utf-8")
@@ -183,10 +184,14 @@ def main():
                 + page.replace("<!--LEAFLET_CSS-->", '<link rel="stylesheet" '
                                'href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">'))
 
-    # Swap in the new build
-    shutil.rmtree(out_dir / "data", ignore_errors=True)
-    new_data.rename(out_dir / "data")
+    # Swap in the new build: move the old data aside first, so nothing is deleted until the new data is in place
+    old_data, data = out_dir / "data.old", out_dir / "data"
+    shutil.rmtree(old_data, ignore_errors=True)
+    if data.exists():
+        data.rename(old_data)
+    new_data.rename(data)
     (out_dir / "index.html").write_text(page, encoding="utf-8")
+    shutil.rmtree(old_data)
     size = sum(p.stat().st_size for p in out_dir.rglob("*") if p.is_file())
     print(f"wrote {out_dir} ({size / 1e6:.1f} MB)")
 
