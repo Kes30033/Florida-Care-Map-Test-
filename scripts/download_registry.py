@@ -67,8 +67,10 @@ def crawl_prefix(prefix):
     # Saturated single ZIP: split by organization name prefix
     saturated_zips.append(prefix)
     out = list(rows)
+    # Names like "P & L Medical" or "A-1 Home Care" have a space or symbol second, so try those too.
+    # (Names with a period second, like "T.L.C.", can't be searched this way: the API ignores them.)
     chars = string.ascii_uppercase + string.digits
-    for a, b in itertools.product(chars, chars):
+    for a, b in itertools.product(chars, chars + " &-'"):
         r, s = pull({**params, "organization_name": a + b + "*"})
         if s:
             print("STILL SATURATED", prefix, a + b, file=sys.stderr)
@@ -83,7 +85,7 @@ def main():
             for r in rows:
                 results[r["number"]] = r
             print(p, len(rows), "total", len(results), file=sys.stderr, flush=True)
-    with gzip.open(OUT, "wt") as f:
+    with gzip.open(OUT, "wt", encoding="utf-8") as f:
         for r in results.values():
             f.write(json.dumps(r) + "\n")
     (ROOT / "data/raw/DOWNLOADED_ON").write_text(datetime.date.today().isoformat() + "\n")
@@ -91,4 +93,5 @@ def main():
     print("DONE", len(results), file=sys.stderr)
 
 
-main()
+if __name__ == "__main__":
+    main()

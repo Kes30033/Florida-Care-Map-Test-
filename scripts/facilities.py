@@ -4,9 +4,11 @@ Both the spreadsheet (build_spreadsheet.py) and the website (build_site.py) use 
 so the two always agree on categories and specialty flags.
 """
 import csv
+import difflib
 import gzip
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 import zipcodes
@@ -15,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data/raw/fl_orgs.jsonl.gz"
 TAXONOMY = ROOT / "data/reference/nucc_taxonomy_261.csv"
 
-tax = {r["Code"]: r for r in csv.DictReader(open(TAXONOMY, encoding="latin-1"))}
+tax = {r["Code"]: r for r in csv.DictReader(open(TAXONOMY, encoding="latin-1"))}  # NUCC publishes this file as Latin-1
 
 # Categories that are businesses supporting care rather than places you go for care
 OTHER_CATEGORIES = {"Pharmacy", "Medical Equipment & Supplies", "Ambulance & Medical Transport",
@@ -98,7 +100,7 @@ def has(pattern, text):
 
 
 SPINE_CODES = {"207XS0117X", "207XP3100X", "207T00000X", "2081P0004X"}
-BRACE_CODES = {"222Z00000X", "225000000X", "335E00000X", "224P00000X"}
+BRACE_CODES = {"222Z00000X", "225000000X", "335E00000X"}  # orthotist, orthotic fitter, orthotic supplier
 
 
 def flags(codes, cls_text, name, cat):
@@ -108,7 +110,7 @@ def flags(codes, cls_text, name, cat):
     if "SCOLIOSIS" in name:
         spine_why.append("Name mentions scoliosis")
     if codes & SPINE_CODES:
-        spine_why.append("Spine / neuro / pediatric orthopedic surgery specialty")
+        spine_why.append("Spine / neuro / pediatric orthopedic surgery or spinal cord injury specialty")
     if has(r"\bSPINE\b|\bSPINAL\b", name):
         spine_why.append("Name mentions spine")
     if codes & BRACE_CODES:
@@ -151,7 +153,9 @@ def title(s):
     for w in s.title().split(" "):
         core = w.rstrip(",")
         out.append(w.upper() if core.upper() in KEEP_UPPER else w)
-    return " ".join(out).replace("'S ", "'s ")
+    s = " ".join(out)
+    s = re.sub(r"(\d)(St|Nd|Rd|Th)\b", lambda m: m.group(1) + m.group(2).lower(), s)  # 21St -> 21st
+    return re.sub(r"(\w)'S\b", r"\1's", s)  # Children'S -> Children's
 
 
 county_cache = {}
@@ -162,6 +166,55 @@ def county(z):
         m = zipcodes.matching(z) if len(z) == 5 and z.isdigit() else []
         county_cache[z] = m[0]["county"] if m else ""
     return county_cache[z]
+
+
+def city_key(c):
+    """Spelling-insensitive key for a city name: 'St. Petersburg, FL' and 'Saint Petersburg' match.
+    site/index.template.html has the same rules in cityKey(); keep the two in step."""
+    k = re.sub(r"[.,'’\-]", " ", (c or "").lower())
+    k = re.sub(r"\s+(fl|florida)(\s+\d{5})?\s*$", "", k)
+    k = re.sub(r"\s+\d{5}\s*$", "", k)
+    for short, full in (("st", "saint"), ("ste", "sainte"), ("ft", "fort"), ("pt", "port"), ("mt", "mount"),
+                        ("n", "north"), ("s", "south"), ("e", "east"), ("w", "west")):
+        k = re.sub(rf"\b{short}\b", full, k)
+    return re.sub(r"\s+", " ", k).strip()
+
+
+def zip_cities(z):
+    """USPS city names that are valid for a ZIP code, primary first."""
+    m = zipcodes.matching(z) if len(z) == 5 and z.isdigit() else []
+    return [m[0]["city"], *m[0]["acceptable_cities"]] if m else []
+
+
+def canonical_cities(pairs):
+    """Map each (registry city, ZIP) to one clean spelling.
+
+    Uses the USPS name for the ZIP when the registry city is that name in another spelling or with a
+    small typo ('Ft Lauderdale', 'Fort Lauderdle'); otherwise the most common registry spelling of the city."""
+    spellings = {}
+    for c, _ in pairs:
+        spellings.setdefault(city_key(c), Counter())[title(c).strip(" ,.")] += 1
+    common = {k: cnt.most_common(1)[0][0] for k, cnt in spellings.items()}
+    out = {}
+    for c, z in set(pairs):
+        k = city_key(c)
+        usps = {city_key(u): title(u) for u in zip_cities(z)}
+        if k in usps:
+            name = usps[k]
+        else:
+            close = difflib.get_close_matches(k, list(usps), n=1, cutoff=0.85) if k else []
+            name = usps[close[0]] if close else common.get(k) or title(c)
+        out[c, z] = readable_city(name)
+    return out
+
+
+def readable_city(name):
+    """Spell out postal abbreviations the way the cities write their own names: Ft Lauderdale -> Fort Lauderdale,
+    St Petersburg -> St. Petersburg, N Miami Beach -> North Miami Beach."""
+    for short, full in ((r"Ft\.?", "Fort"), (r"Pt\.?", "Port"), (r"Mt\.?", "Mount"), (r"St(?!\.)", "St."),
+                        (r"N\.?", "North"), (r"S\.?", "South"), (r"E\.?", "East"), (r"W\.?", "West")):
+        name = re.sub(rf"\b{short}(?= \w)", full, name)
+    return name
 
 
 def location(r):
@@ -177,19 +230,22 @@ def address_key(loc):
 
 
 def raw_records(path=RAW):
-    with gzip.open(path, "rt") as fh:
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
         for line in fh:
             yield json.loads(line)
 
 
 def load_rows(path=RAW):
     """One dict per Florida organization, plus its "_key" for address lookups."""
-    rows, seen = [], set()
+    records, seen = [], set()
     for r in raw_records(path):
         loc = location(r)
-        if not loc or r["number"] in seen:
-            continue
-        seen.add(r["number"])
+        if loc and r["number"] not in seen:
+            seen.add(r["number"])
+            records.append((r, loc))
+    cities = canonical_cities([(loc.get("city", ""), (loc.get("postal_code") or "")[:5]) for _, loc in records])
+    rows = []
+    for r, loc in records:
         taxes = r.get("taxonomies", [])
         primary = next((t for t in taxes if t.get("primary")), taxes[0] if taxes else {})
         pcode = primary.get("code", "")
@@ -214,7 +270,7 @@ def load_rows(path=RAW):
             "All Listed Specialties": "; ".join(specialties),
             **flags(codes, cls_text, all_names, cat),
             "Street Address": title(addr),
-            "City": title(loc.get("city", "")),
+            "City": cities[loc.get("city", ""), z],
             "County": county(z),
             "ZIP": z,
             "Phone": fmt_phone(loc.get("telephone_number")),

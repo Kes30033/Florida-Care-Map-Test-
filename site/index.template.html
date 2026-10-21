@@ -51,6 +51,7 @@
 html, body { height: 100%; }
 body { background: var(--panel); color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.45; }
 * { box-sizing: border-box; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 [hidden] { display: none !important; }
 button, input { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
@@ -67,7 +68,7 @@ button, input { font: inherit; color: inherit; }
 
 .search { padding-block: 4px 12px; display: grid; gap: 8px; }
 .search form { display: flex; gap: 8px; }
-.search input { flex: 1; min-width: 0; height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); font-size: 15px; }
+.search input { flex: 1; min-width: 0; height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); font-size: 16px; }
 .search input::placeholder { color: var(--muted); }
 .btn { height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--ink); background: var(--ink); color: var(--panel); font-weight: 600; cursor: pointer; }
 .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); height: 32px; padding: 0 10px; font-size: 13px; font-weight: 500; }
@@ -167,7 +168,7 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
 </style>
 
 <div class="app">
-  <aside class="panel" aria-label="Directory">
+  <aside class="panel" id="panel" aria-label="Directory">
     <header class="masthead">
       <h1>Florida Care Map</h1>
       <p>Every healthcare organization registered in Florida. <span class="tally" id="tally">Loading…</span></p>
@@ -187,17 +188,18 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
       <div class="filter-body">
         <p class="eyebrow">Type of place</p>
         <div class="groups" id="groups"></div>
-        <p class="eyebrow">Must offer</p>
+        <p class="eyebrow">Specialty tags</p>
         <div class="chips" id="chips"></div>
         <div class="filter-foot">
-          <p class="hint">Specialties come from each place's official registration.</p>
+          <p class="hint">Tags come from each place's registered specialties and words in its name. Call to confirm a service.</p>
           <button class="btn ghost" type="button" id="reset">Reset</button>
         </div>
       </div>
     </details>
 
-    <section class="results" id="results" aria-live="polite">
-      <div class="results-head"><h2 id="resultsTitle">Places in view</h2><span class="count" id="resultsCount"></span></div>
+    <section class="results" id="results">
+      <p class="sr-only" id="listAnnounce" aria-live="polite"></p>
+      <div class="results-head"><h2 id="resultsTitle" tabindex="-1">Places in view</h2><span class="count" id="resultsCount"></span></div>
       <ul class="list" id="list"></ul>
       <p class="empty" id="empty" hidden></p>
       <button class="btn ghost more" type="button" id="more" hidden>Show more</button>
@@ -206,7 +208,7 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
     <section class="detail" id="detail" hidden></section>
 
     <footer class="source">
-      <p>Source: U.S. NPI Registry (CMS), Oct 21, 2026. Map positions from the U.S. Census and OpenStreetMap address lookups. Registrations are self-reported, so call ahead to confirm services.</p>
+      <p>Source: U.S. NPI Registry (CMS), <!--UPDATED-->. Map positions from U.S. Census and OpenStreetMap address lookups; places neither could match sit at the center of their ZIP code. Registrations are self-reported, so call ahead to confirm services.</p>
     </footer>
   </aside>
   <div id="map" role="application" aria-label="Map of Florida healthcare places"><div class="loading" id="loading">Loading places…</div></div>
@@ -217,7 +219,7 @@ input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var
 <script>
 (() => {
 "use strict";
-const GROUPS = ["Hospitals & emergency", "Rehab, therapy & spine", "Doctors & clinics", "Other care & services"];
+const GROUPS = ["Hospitals & emergency", "Rehab, therapy & braces", "Doctors & clinics", "Other care & services"];
 const FLAGS = [
   { bit: 1, label: "Spine & scoliosis" }, { bit: 2, label: "Orthopedics" }, { bit: 4, label: "Surgery" },
   { bit: 8, label: "Rehab & therapy" }, { bit: 16, label: "Children" }, { bit: 32, label: "Mental health" },
@@ -226,6 +228,9 @@ const APPROX = 64;
 const TILES = /*TILES*/true;   // false in the Claude artifact build, where outside map images are blocked
 const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
 const LIST_LIMIT = 400, PAGE = 150, CLUSTER_MAX = 15;
+// Street map images are light in every theme, so dots keep their light-theme colors there (same values as :root)
+const LIGHT_MARKS = { cluster: "#263034", "cluster-ink": "#ffffff", g0: "#2a78d6", g1: "#eb6834", g2: "#1baf7a", g3: "#52514e", ink: "#13191c" };
+const canHover = matchMedia("(hover: hover)").matches;
 
 const $ = id => document.getElementById(id);
 const fmt = n => n.toLocaleString("en-US");
@@ -236,6 +241,8 @@ let P, N, LAT, LNG, feats, index, base, map, layer;
 let catOn = [], must = 0, pass;
 let mode = { kind: "view" };      // view | zip | city | spot
 let listIdx = [], shown = 0, selected = -1;
+let back = null, listDirty = false, keepNextMove = false, selToken = 0;   // "Back to list" state
+let cityIndex = new Map();        // spelling-insensitive city key -> { t: [city ids], n: places, name }
 const details = {};               // zip3 -> Promise<array>
 
 let T = {};
@@ -244,6 +251,7 @@ function readTokens() {
   for (const k of ["water","land","neighbor","county","road-1","road-2","ink","ink-2","muted","cluster","cluster-ink","halo","g0","g1","g2","g3","panel"]) T[k] = cs.getPropertyValue("--" + k).trim();
   // Ring and hollow-dot fill: match whatever the dots sit on
   T.ring = mapStyle === "simple" ? T.land : "#ffffff";
+  if (mapStyle === "streets") Object.assign(T, LIGHT_MARKS);
 }
 
 
@@ -275,6 +283,7 @@ function computePass() {
 }
 let rebuildTimer;
 function applyFilters() {
+  if (!$("detail").hidden) listDirty = true;
   computePass();
   updateCounts();
   clearTimeout(rebuildTimer);
@@ -363,7 +372,11 @@ const PointsLayer = L.Layer.extend({
     items.sort((a, b) => (a.k === "c") - (b.k === "c"));
     this.items = items;
     this.draw();
-    if (mode.kind === "view") refreshList();
+    if (mode.kind === "view") {
+      if (keepNextMove) keepNextMove = false;
+      else if ($("detail").hidden) refreshList();
+      else if (!back || !back.view) listDirty = true;
+    }
     if (z >= 12) {
       const pts = items.filter(it => it.k !== "c").map(it => it.i ?? it.ids[0]);
       if (pts.length) ensure(pts).catch(() => {});
@@ -537,6 +550,7 @@ function setupMap() {
 
   const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; $("map").appendChild(tip);
   map.on("mousemove", e => {
+    if (!canHover) return;
     const it = layer.hit(e.containerPoint);
     map.getContainer().style.cursor = it ? "pointer" : "";
     if (!it) { tip.hidden = true; return; }
@@ -550,6 +564,7 @@ function setupMap() {
   });
   map.on("mouseout movestart", () => { tip.hidden = true; });
   map.on("click", e => {
+    tip.hidden = true;
     const it = layer.hit(e.containerPoint);
     if (!it) return;
     if (it.k === "c") {
@@ -569,8 +584,14 @@ function inView() {
   return out;
 }
 let listToken = 0;
+let announceTimer;
+function announce(text) {
+  clearTimeout(announceTimer);
+  announceTimer = setTimeout(() => { if ($("listAnnounce").textContent !== text) $("listAnnounce").textContent = text; }, 1000);
+}
 async function refreshList() {
-  if (!P || !$("detail").hidden) return;
+  if (!P) return;
+  if (!$("detail").hidden) { listDirty = true; return; }
   const token = ++listToken;
   let ids, title;
   if (mode.kind === "view") {
@@ -578,6 +599,7 @@ async function refreshList() {
     $("resultsTitle").textContent = title;
     $("resultsCount").textContent = fmt(ids.length);
     if (ids.length > LIST_LIMIT) {
+      announce(`${fmt(ids.length)} places in view. Zoom in to list them.`);
       $("list").innerHTML = ""; $("more").hidden = true;
       $("empty").hidden = false;
       $("empty").textContent = `${fmt(ids.length)} places in this part of the map. Zoom in, click a circle, or search a ZIP code to list them.`;
@@ -592,37 +614,52 @@ async function refreshList() {
     $("resultsCount").textContent = fmt(ids.length) + (ids.length !== mode.ids.length ? ` of ${fmt(mode.ids.length)}` : "");
   }
   listIdx = ids; shown = 0;
-  $("list").innerHTML = "";
+  announce(`${fmt(ids.length)} places ${mode.kind === "view" ? "in view" : "in " + title}`);
+  $("list").innerHTML = ""; $("more").hidden = true;
   $("empty").hidden = ids.length > 0;
   if (!ids.length) $("empty").textContent = mode.kind === "view" ? "No places match your filters here. Try zooming out or resetting the filters." : "No places here match your filters. Reset the filters to see all of them.";
   await renderMore(token);
 }
 async function renderMore(token = listToken) {
-  const slice = listIdx.slice(shown, shown + PAGE);
+  const start = shown, slice = listIdx.slice(start, start + PAGE);
   if (!slice.length) { $("more").hidden = true; return; }
-  try { await ensure(slice); } catch (e) { $("empty").hidden = false; $("empty").textContent = "Couldn't load place details. Check your connection and try again."; return; }
-  if (token !== listToken) return;
+  $("more").disabled = true;
+  try { await ensure(slice); } catch (e) {
+    if (token === listToken) { $("more").disabled = false; $("empty").hidden = false; $("empty").textContent = "Couldn't load place details. Check your connection and try again."; }
+    return;
+  }
+  if (token !== listToken || shown !== start) return;
+  $("more").disabled = false;
   const frag = document.createDocumentFragment();
   for (const i of slice) {
     const r = rec(i), li = document.createElement("li");
-    li.innerHTML = `<button class="item" type="button"><span class="swatch g${groupOf(i)}"></span><span class="t">${esc(r[0])}</span><span class="s">${esc(P.types[r[2]])} · ${esc(r[4])}, ${esc(P.cities[P.t[i]])} ${P.z[i]}</span></button>`;
+    li.innerHTML = `<button class="item" type="button" data-i="${i}"><span class="swatch g${groupOf(i)}"></span><span class="t">${esc(r[0])}</span><span class="s">${esc(P.types[r[2]])} · ${esc(r[4])}, ${esc(P.cities[P.t[i]])} ${P.z[i]}</span></button>`;
     li.firstChild.addEventListener("click", () => select(i, true));
     li.firstChild.addEventListener("mouseenter", () => { hover = i; layer.draw(); });
     frag.appendChild(li);
   }
   $("list").appendChild(frag);
-  shown += slice.length;
+  shown = start + slice.length;
   $("more").hidden = shown >= listIdx.length;
-  $("more").textContent = `Show ${fmt(Math.min(PAGE, listIdx.length - shown))} more`;
+  $("more").textContent = `Show ${fmt(Math.max(0, Math.min(PAGE, listIdx.length - shown)))} more`;
 }
 let hover = -1;
 
 async function select(i, fly) {
+  const tok = ++selToken;
+  try { await ensure([i]); } catch (e) {
+    if (tok === selToken) setStatus("Couldn't load details for this place. Check your connection and try again.");
+    return;
+  }
+  if (tok !== selToken) return;   // something newer was opened or searched meanwhile
+  if (!$("results").hidden) {
+    back = { scroll: $("panel").scrollTop, opener: i, view: fly ? { c: map.getCenter(), z: map.getZoom() } : null };
+    listDirty = false;
+  }
   selected = i;
-  try { await ensure([i]); } catch (e) { setStatus("Couldn't load details for this place. Check your connection and try again."); return; }
   const r = rec(i), g = groupOf(i), f = P.f[i];
   const flags = FLAGS.filter(x => f & x.bit).map(x => `<span class="pill flag">${esc(x.label)}</span>`).join("");
-  const why = [[128, "name mentions scoliosis"], [256, "registered spine, neuro or pediatric orthopedic surgery"], [512, "name mentions spine"], [1024, "makes or fits braces"]]
+  const why = [[128, "its name mentions scoliosis"], [256, "it registered spine surgery, neurosurgery, pediatric orthopedics or spinal cord injury medicine"], [512, "its name mentions spine"], [1024, "it makes or fits braces"]]
     .filter(([b]) => f & b).map(([, t]) => t);
   const addr = `${r[4]}, ${P.cities[P.t[i]]}, FL ${P.z[i]}`;
   const d = $("detail");
@@ -639,9 +676,9 @@ async function select(i, fly) {
       <dt>Updated</dt><dd>${esc(r[8])}</dd>
     </dl>
     ${r[3].length ? `<div><p class="eyebrow">Registered specialties</p><div class="pills" style="margin-top:6px">${r[3].map(s => `<span class="pill">${esc(P.specialties[s])}</span>`).join("")}</div></div>` : ""}
-    ${flags ? `<div><p class="eyebrow">Offers</p><div class="pills" style="margin-top:6px">${flags}</div></div>` : ""}
-    ${why.length ? `<p class="note">Spine-related because its ${esc(why.join("; "))}. Call to confirm they treat scoliosis.</p>` : ""}
-    ${f & APPROX ? `<p class="note">The address couldn't be matched exactly, so the dot sits at the center of ZIP ${P.z[i]}.</p>` : ""}
+    ${flags ? `<div><p class="eyebrow">Tagged as</p><div class="pills" style="margin-top:6px">${flags}</div></div>` : ""}
+    ${why.length ? `<p class="note">Tagged spine-related because ${esc(why.join("; "))}. Call to confirm they treat scoliosis.</p>` : ""}
+    ${f & APPROX ? `<p class="note">The address couldn't be matched exactly, so the dot sits at the center of its ZIP code area.</p>` : ""}
     <div class="actions">
       <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r[0] + ", " + addr)}" target="_blank" rel="noopener">Open in Google Maps</a>
       <a href="https://npiregistry.cms.hhs.gov/provider-view/${encodeURIComponent(r[6])}" target="_blank" rel="noopener">Official registry record</a>
@@ -660,9 +697,24 @@ async function select(i, fly) {
   else layer.draw();
 }
 function closeDetail() {
+  selToken++;
   selected = -1;
   $("detail").hidden = true; $("results").hidden = false;
-  layer.draw(); refreshList();
+  const b = back; back = null;
+  if (b && b.view && !(map.getCenter().equals(b.view.c) && map.getZoom() === b.view.z)) {
+    keepNextMove = !listDirty;   // returning to the earlier view: keep the list as it was
+    map.setView(b.view.c, b.view.z, { animate: false });
+  }
+  if (listDirty || !b) {
+    listDirty = false;
+    refreshList();
+    $("resultsTitle").focus({ preventScroll: true });
+  } else {
+    $("panel").scrollTop = b.scroll;
+    const opener = $("list").querySelector(`.item[data-i="${b.opener}"]`);
+    (opener || $("resultsTitle")).focus({ preventScroll: true });
+  }
+  layer.draw();
 }
 
 // ---------- search ----------
@@ -672,6 +724,7 @@ function setStatus(html, clear) {
 }
 function setMode(m) {
   mode = m;
+  selToken++; back = null; listDirty = false; keepNextMove = false;
   if (!$("detail").hidden) { selected = -1; $("detail").hidden = true; $("results").hidden = false; layer.draw(); }
   if (m.kind === "spot") setStatus(`Showing ${fmt(m.ids.length)} places at one spot.`, true);
   refreshList();
@@ -700,13 +753,37 @@ function search(qs) {
     } else setStatus(`${esc(q)} isn't a Florida ZIP code. Florida ZIP codes start with 32, 33 or 34.`, true);
     return;
   }
-  const lower = q.toLowerCase().replace(/,?\s*(fl|florida)$/, "").trim();
-  let t = P.cities.findIndex(c => c.toLowerCase() === lower);
-  if (t < 0) t = P.cities.findIndex(c => c.toLowerCase().startsWith(lower));
-  if (t < 0) { setStatus(`No Florida city named “${esc(q)}” in the registry. Try a 5-digit ZIP code.`, true); return; }
-  const ids = []; for (let i = 0; i < N; i++) if (P.t[i] === t) ids.push(i);
-  setStatus(`${fmt(ids.length)} registered places in ${esc(P.cities[t])}.`, true);
-  mode = { kind: "city", city: P.cities[t], ids }; fitTo(ids); setMode(mode);
+  const k = cityKey(q);
+  if (!k || k === "fl" || k === "florida") { setStatus("Type a 5-digit ZIP code or a Florida city name, like Tampa.", true); return; }
+  let city = cityIndex.get(k);
+  if (!city && k.length >= 3) {
+    // Partly typed: the biggest city whose name starts with what was typed
+    for (const [key, v] of cityIndex) if (key.startsWith(k) && (!city || v.n > city.n)) city = v;
+  }
+  if (!city) { setStatus(`No Florida city named “${esc(q)}” in the registry. Try a 5-digit ZIP code.`, true); return; }
+  const ts = new Set(city.t), ids = [];
+  for (let i = 0; i < N; i++) if (ts.has(P.t[i])) ids.push(i);
+  setStatus(`${fmt(ids.length)} registered places in ${esc(city.name)}.`, true);
+  mode = { kind: "city", city: city.name, ids }; fitTo(ids); setMode(mode);
+}
+// Same rules as city_key() in scripts/facilities.py: "St. Petersburg, FL" and "Saint Petersburg" match
+function cityKey(c) {
+  let k = (c || "").toLowerCase().replace(/[.,'’\-]/g, " ");
+  k = k.replace(/\s+(fl|florida)(\s+\d{5})?\s*$/, "").replace(/\s+\d{5}\s*$/, "");
+  for (const [s, full] of [["st", "saint"], ["ste", "sainte"], ["ft", "fort"], ["pt", "port"], ["mt", "mount"],
+                           ["n", "north"], ["s", "south"], ["e", "east"], ["w", "west"]])
+    k = k.replace(new RegExp(`\\b${s}\\b`, "g"), full);
+  return k.replace(/\s+/g, " ").trim();
+}
+function buildCityIndex() {
+  const counts = new Array(P.cities.length).fill(0);
+  for (let i = 0; i < N; i++) counts[P.t[i]]++;
+  cityIndex = new Map();
+  P.cities.forEach((name, t) => {
+    const k = cityKey(name), v = cityIndex.get(k) || cityIndex.set(k, { t: [], n: 0, name, top: 0 }).get(k);
+    v.t.push(t); v.n += counts[t];
+    if (counts[t] > v.top) { v.top = counts[t]; v.name = name; }
+  });
 }
 
 function showLoading(t) { const l = $("loading"); l.textContent = t; l.hidden = false; }
@@ -719,7 +796,7 @@ async function boot() {
   try {
     base = await fetch("data/basemap.json").then(r => r.json());
     setupMap();
-    showLoading("Loading 175,000 places…");
+    showLoading("Loading places…");
     P = await fetch("data/points.json").then(r => r.json());
   } catch (e) {
     showLoading("The map data didn't load. Refresh the page to try again.");
@@ -733,7 +810,9 @@ async function boot() {
     feats[i] = { type: "Feature", properties: { i }, geometry: { type: "Point", coordinates: [LNG[i], LAT[i]] } };
   }
   catOn = P.categories.map(() => true);
-  $("cityList").innerHTML = P.cities.map(c => `<option value="${esc(c)}">`).join("");
+  buildCityIndex();
+  $("cityList").innerHTML = [...cityIndex.values()].filter(v => v.n >= 2).map(v => v.name).sort()
+    .map(c => `<option value="${esc(c)}">`).join("");
   buildFilters();
   applyFilters();
   $("searchForm").addEventListener("submit", e => { e.preventDefault(); search($("q").value); });

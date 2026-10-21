@@ -2,7 +2,7 @@
 
 An interactive map and spreadsheet of every healthcare organization registered in Florida:
 hospitals, rehab centers, clinics, doctor's offices, surgery centers, nursing homes and more,
-175,266 places in all.
+about 175,000 places in all.
 
 - **Website:** https://kes30033.github.io/Florida-Care-Map-Test-/
 - **Spreadsheet:** [data/Florida_Medical_Facilities.xlsx](data/Florida_Medical_Facilities.xlsx) (click it, then "Download raw file")
@@ -11,8 +11,9 @@ hospitals, rehab centers, clinics, doctor's offices, surgery centers, nursing ho
 
 - Search by **ZIP code** or **city**, or scroll and zoom around the map.
 - Switch between **Streets**, **Satellite** and **Simple** map styles (top-left of the map).
-- Filter by **type of place** and by what a place **must offer**: spine & scoliosis, orthopedics,
-  surgery, rehab & therapy, children, mental health.
+- Filter by **type of place** and by **specialty tags**: spine & scoliosis, orthopedics, surgery,
+  rehab & therapy, children, mental health. Tags come from each place's registered specialties and
+  from words in its name, so call to confirm a service.
 - Click any place for its type, registered specialties, address, phone number, a Google Maps link
   and its official government record.
 
@@ -49,7 +50,7 @@ data/
   Florida_Medical_Facilities.xlsx   the spreadsheet
   raw/fl_orgs.jsonl.gz      raw registry download (compressed)
   reference/                specialty code list
-  geocode/                  address list and map-position lookups (Census + OpenStreetMap)
+  geocode/                  map-position lookups, saved by address (census_cache.csv, osm_cache.jsonl)
   basemap/basemap.json      counties, highways and ZIP centers for the Simple map
 scripts/                  the steps that build everything (below)
 site/index.template.html  the website's page, before data is added
@@ -61,12 +62,13 @@ Needs Python 3.10+ and `pip install -r requirements.txt`. Run from the repositor
 
 ```
 python scripts/download_registry.py   # ~30 min: fresh download from the NPI Registry
-python scripts/build_spreadsheet.py   # ~30 s: rebuilds the spreadsheet
-python scripts/geocode_census.py      # ~20 min: map positions for every address
-python scripts/geocode_osm.py         # ~2.5 h: second try for addresses Census couldn't match
+python scripts/build_spreadsheet.py   # ~1 min: rebuilds the spreadsheet
+python scripts/geocode_census.py      # map positions for new addresses (~20 min the first time, minutes after)
+python scripts/geocode_osm.py         # second try for addresses Census couldn't match (~2.5 h the first time)
 python scripts/make_basemap.py        # ~10 s: counties and highways (only needed once)
-python scripts/build_site.py          # ~30 s: rebuilds the website in docs/
+python scripts/build_site.py          # ~1 min: rebuilds the website in docs/
 ```
 
-Then commit and push; GitHub Pages republishes the website within a few minutes.
+Both address lookups remember every answer by address, so after a fresh download they only look up
+addresses that are new. Then commit and push; GitHub Pages republishes the website within a few minutes.
 The Claude-hosted copy of the map is built with `python scripts/build_site.py --artifact <folder>`.
