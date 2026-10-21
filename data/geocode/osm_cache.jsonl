@@ -4411,3 +4411,12 @@
 {"key": ["1490 NE MIAMI GDN DR", "MIAMI", "33179"], "ok": true, "lat": 25.9443084, "lon": -80.1710968}
 {"key": ["1380 NE MIAMI GARDENS DR STE 209", "NORTH MIAMI BEACH", "33179"], "ok": true, "lat": 25.9442308, "lon": -80.1733892}
 {"key": ["1400 NE MIAMI GARDENS DR", "N MIAMI BEACH", "33179"], "ok": true, "lat": 25.9442684, "lon": -80.1724613}
+{"key": ["1380 NE MIAMI GARDENS DR", "NORTH MIAMI BEACH", "33179"], "ok": true, "lat": 25.9442308, "lon": -80.1733892}
+{"key": ["1380 NE", "MIAMI GARDENS", "33179"], "ok": true, "lat": 25.9442667, "lon": -80.1735384}
+{"key": ["1380 NE MIAMI GARDENS DR STE 155", "NORTH MIAMI BEACH", "33179"], "ok": true, "lat": 25.9442308, "lon": -80.1733892}
+{"key": ["1380 NE MIAMI GARDENS DR STE 242", "NORTH MIAMI BEACH", "33179"], "ok": true, "lat": 25.9442308, "lon": -80.1733892}
+{"key": ["1893 N.E. MIAMI GARDENS DRIVE", "NORTH MIAMI BEACH", "33179"], "ok": true}
+{"key": ["1380 NE MIAMI GARDENS DR STE 242A", "NORTH MIAMI BEACH", "33179"], "ok": true, "lat": 25.9442308, "lon": -80.1733892}
+{"key": ["1380 NE MIAMI GARDENS DR STE 270", "NORTH MIAMI BEACH", "33179"], "ok": true, "lat": 25.9442308, "lon": -80.1733892}
+{"key": ["700 IVES DAIRY RD", "NORTH MIAMI BEACH", "33179"], "ok": true}
+{"key": ["1440 NE MIAMI GARDENS DRIVE", "MIAMI GARDENS", "33179"], "ok": true}
